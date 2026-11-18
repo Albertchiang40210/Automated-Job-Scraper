@@ -83,8 +83,12 @@ def evaluate_job(resume_text: str, job_title: str, job_description: str) -> dict
             log.warning("Gemini 429,%d 秒後重試", backoff)
             time.sleep(backoff)
             continue
+        if resp.status_code in (400, 401, 403, 404):
+            # 設定錯誤(模型/金鑰/請求格式):不用備援分數,避免把職缺誤記為已評估
+            log.error("Gemini 設定錯誤 %s (模型 %s): %s", resp.status_code, GEMINI_MODEL, resp.text[:300])
+            return {"score": 0, "reason": f"Gemini 設定錯誤 {resp.status_code}", "error": True}
         if resp.status_code != 200:
-            log.error("Gemini 請求失敗,狀態碼 %s", resp.status_code)
+            log.error("Gemini 請求失敗,狀態碼 %s: %s", resp.status_code, resp.text[:300])
             return fallback_score(job_description)
         try:
             text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
