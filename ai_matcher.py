@@ -78,9 +78,9 @@ def evaluate_job(resume_text: str, job_title: str, job_description: str) -> dict
             log.error("Gemini 連線失敗: %s", type(e).__name__)
             return fallback_score(job_description)
 
-        if resp.status_code == 429 and attempt < 2:
+        if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2:
             backoff = 30 * (2 ** attempt)
-            log.warning("Gemini 429,%d 秒後重試", backoff)
+            log.warning("Gemini %s,%d 秒後重試", resp.status_code, backoff)
             time.sleep(backoff)
             continue
         if resp.status_code in (400, 401, 403, 404):
