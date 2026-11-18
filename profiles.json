@@ -21,6 +21,7 @@
     "name": "行政",
     "resume": "resume_admin.txt",
     "level": "any",
+    "webhook_env": "DISCORD_WEBHOOK_URL_ADMIN",
     "keywords": [
       "行政人員",
       "總務專員",
