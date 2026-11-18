@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import pytest
 from ai_matcher import fallback_score, parse_response
 from discord_notifier import build_embeds
+from scrapers.scraper_104 import is_relevant
 from utils import dedupe_jobs
 
 
@@ -38,3 +39,9 @@ def test_dedupe():
 def test_embed_truncation():
     e = build_embeds([{"platform": "x", "title": "t", "reason": "r" * 9000, "score": 90}])
     assert len(e[0]["description"]) <= 4000
+
+
+def test_relevance_filter():
+    assert is_relevant("AI Engineer", "AI Engineer (內湖)", "")
+    assert not is_relevant("AI Engineer", "平面視覺設計師", "設計 Photoshop")
+    assert is_relevant("Python", "後端工程師", "熟悉 python")
