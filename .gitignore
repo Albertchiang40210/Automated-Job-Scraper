@@ -5,3 +5,7 @@ __pycache__/
 run_scraper.bat
 test_models.py
 find_model.py
+.venv/
+venv/
+seen_jobs.json
+.pytest_cache/

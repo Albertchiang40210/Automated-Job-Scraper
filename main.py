@@ -1,71 +1,67 @@
-import os
-import time
-from scrapers.scraper_104 import scrape_104
-from scrapers.scraper_cake import scrape_cake
-from scrapers.scraper_yourator import scrape_yourator
+import logging
+
 from ai_matcher import evaluate_job
+from config import KEYWORDS, LIMIT_PER_SOURCE, SCORE_THRESHOLD, SEEN_FILE
 from discord_notifier import send_discord_notification
+from scrapers.scraper_104 import scrape_104
+from utils import dedupe_jobs, job_key, load_seen, save_seen, setup_logging
+
+log = logging.getLogger(__name__)
+
+# 目前啟用的求職平台(1111 有驗證閘門,尚未支援)
+SCRAPERS = {"104": scrape_104}
+
 
 def read_resume():
     try:
-        with open('resume_summary.txt', 'r', encoding='utf-8') as f:
+        with open("resume_summary.txt", "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        print("找不到 resume_summary.txt，請建立該檔案並填寫您的履歷摘要。")
+        log.error("找不到 resume_summary.txt,請建立該檔案並填寫您的履歷摘要。")
         return ""
 
+
+def scrape_all(keywords, limit):
+    jobs = []
+    for keyword in keywords:
+        for name, fn in SCRAPERS.items():
+            try:
+                jobs.extend(fn(keyword=keyword, limit=limit))
+            except Exception as e:
+                log.error("%s 爬蟲失敗: %s", name, e)
+    return jobs
+
+
 def main():
-    keywords = ["AI Engineer", "Python", "軟體工程師"]
-    print(f"=== 啟動每日求職爬蟲 ({', '.join(keywords)}) ===")
-    
+    setup_logging()
+    log.info("=== 啟動求職爬蟲 (%s) ===", ", ".join(KEYWORDS))
     resume_text = read_resume()
     if not resume_text:
         return
-        
-    all_jobs = []
-    
-    # 1. 抓取各平台職缺
-    for keyword in keywords:
-        print(f"開始搜尋關鍵字: {keyword}")
-        try:
-            all_jobs.extend(scrape_104(keyword=keyword, limit=3))
-        except Exception as e:
-            print(f"104 爬蟲失敗: {e}")
-            
-        try:
-            all_jobs.extend(scrape_cake(keyword=keyword, limit=3))
-        except Exception as e:
-            print(f"Cake 爬蟲失敗: {e}")
-            
-        try:
-            all_jobs.extend(scrape_yourator(keyword=keyword, limit=3))
-        except Exception as e:
-            print(f"Yourator 爬蟲失敗: {e}")
-            
-    print(f"總共抓取到 {len(all_jobs)} 筆職缺，準備進行 AI 評估...")
 
-    # 2. AI 評估
-    recommended_jobs = []
-    for i, job in enumerate(all_jobs):
-        print(f"評估中 ({i+1}/{len(all_jobs)}): {job['platform']} - {job['title']}")
-        result = evaluate_job(resume_text, job['title'], job['description'])
-        job['score'] = result.get('score', 0)
-        job['reason'] = result.get('reason', '無')
-        
-        # 轉職生建議將門檻調降至 75 分，以獲取更多潛在機會
-        if job['score'] >= 75:
-            recommended_jobs.append(job)
-            
-        # 為了避免 Google API 免費版限制 (3 次 / 分鐘)，每次評估完休息 22 秒
-        time.sleep(22)
+    seen = load_seen(SEEN_FILE)
+    jobs = dedupe_jobs(scrape_all(KEYWORDS, LIMIT_PER_SOURCE))
+    new_jobs = [j for j in jobs if job_key(j) not in seen]
+    log.info("抓取 %d 筆(去重後),其中 %d 筆為新職缺,開始 AI 評估", len(jobs), len(new_jobs))
 
-    # 3. 發送 Discord 通知
-    if recommended_jobs:
-        print(f"評估完成，共有 {len(recommended_jobs)} 筆符合條件，準備發送 Discord 通知...")
-        send_discord_notification(recommended_jobs)
-        print("發送完成！")
+    recommended = []
+    for i, job in enumerate(new_jobs, 1):
+        log.info("評估中 (%d/%d): %s - %s", i, len(new_jobs), job["platform"], job["title"])
+        result = evaluate_job(resume_text, job["title"], job["description"])
+        if result.get("error"):
+            continue  # 完全失敗:不記錄為已看過,下次再試
+        job["score"], job["reason"] = result["score"], result["reason"]
+        seen.add(job_key(job))
+        if job["score"] >= SCORE_THRESHOLD:
+            recommended.append(job)
+    save_seen(SEEN_FILE, seen)
+
+    if recommended:
+        log.info("共 %d 筆符合條件,發送通知", len(recommended))
+        send_discord_notification(recommended)
     else:
-        print("今日沒有分數超過 70 的推薦職缺。")
+        log.info("今日沒有分數達 %d 的新推薦職缺。", SCORE_THRESHOLD)
+
 
 if __name__ == "__main__":
     main()
