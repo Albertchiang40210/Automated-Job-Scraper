@@ -9,3 +9,4 @@ find_model.py
 venv/
 seen_jobs.json
 .pytest_cache/
+resume_admin.txt
