@@ -11,11 +11,11 @@ from utils import dedupe_jobs
 
 
 def test_fallback_no_substring_false_positive():
-    assert fallback_score("please send email to maintain")["score"] == 60
+    assert fallback_score("please send email to maintain", ["ai"])["score"] == 60
 
 
 def test_fallback_python_junior():
-    assert fallback_score("Python Junior developer")["score"] == 95
+    assert fallback_score("Python Junior developer", ["python"])["score"] == 95
 
 
 def test_parse_fenced_json():
@@ -45,3 +45,19 @@ def test_relevance_filter():
     assert is_relevant("AI Engineer", "AI Engineer (內湖)", "")
     assert not is_relevant("AI Engineer", "平面視覺設計師", "設計 Photoshop")
     assert is_relevant("Python", "後端工程師", "熟悉 python")
+
+
+def test_fallback_custom_keywords():
+    assert fallback_score("徵行政人員", ["行政"])["score"] == 80
+    assert fallback_score("徵工程師", ["行政"])["score"] == 60
+
+
+def test_fallback_disabled_without_keywords():
+    from ai_matcher import _fallback
+    assert _fallback("python", None)["error"] is True
+
+
+def test_fallback_levels():
+    assert fallback_score("資深行政主管", ["行政"], level="senior")["score"] == 95
+    assert fallback_score("資深行政主管", ["行政"], level="junior")["score"] == 70
+    assert fallback_score("行政助理 無經驗可", ["行政"], level="senior")["score"] == 70

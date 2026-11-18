@@ -1,7 +1,8 @@
+import json
 import logging
 
 from ai_matcher import evaluate_job
-from config import KEYWORDS, LIMIT_PER_SOURCE, SCORE_THRESHOLD, SEEN_FILE
+from config import LIMIT_PER_SOURCE, PROFILES_FILE, SCORE_THRESHOLD, SEEN_FILE
 from discord_notifier import send_discord_notification
 from scrapers.scraper_104 import scrape_104
 from utils import dedupe_jobs, job_key, load_seen, save_seen, setup_logging
@@ -12,12 +13,16 @@ log = logging.getLogger(__name__)
 SCRAPERS = {"104": scrape_104}
 
 
-def read_resume():
+def load_profiles(path=PROFILES_FILE):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def read_resume(path):
     try:
-        with open("resume_summary.txt", "r", encoding="utf-8") as f:
-            return f.read()
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read().strip()
     except FileNotFoundError:
-        log.error("找不到 resume_summary.txt,請建立該檔案並填寫您的履歷摘要。")
         return ""
 
 
@@ -32,36 +37,50 @@ def scrape_all(keywords, limit):
     return jobs
 
 
-def main():
-    setup_logging()
-    log.info("=== 啟動求職爬蟲 (%s) ===", ", ".join(KEYWORDS))
-    resume_text = read_resume()
-    if not resume_text:
+def run_profile(profile, seen):
+    """執行單一求職檔案;seen 會被就地更新(key 帶有 profile 名稱,不同檔案互不影響)。"""
+    name = profile["name"]
+    resume = read_resume(profile["resume"])
+    if not resume:
+        log.error("[%s] 找不到或空白的履歷檔 %s,略過此檔案。", name, profile["resume"])
         return
+    threshold = profile.get("threshold", SCORE_THRESHOLD)
+    log.info("=== [%s] 關鍵字: %s ===", name, ", ".join(profile["keywords"]))
 
-    seen = load_seen(SEEN_FILE)
-    jobs = dedupe_jobs(scrape_all(KEYWORDS, LIMIT_PER_SOURCE))
-    new_jobs = [j for j in jobs if job_key(j) not in seen]
-    log.info("抓取 %d 筆(去重後),其中 %d 筆為新職缺,開始 AI 評估", len(jobs), len(new_jobs))
+    jobs = dedupe_jobs(scrape_all(profile["keywords"], profile.get("limit", LIMIT_PER_SOURCE)))
+    new_jobs = [j for j in jobs if f"{name}|{job_key(j)}" not in seen]
+    log.info("[%s] 抓取 %d 筆(去重後),其中 %d 筆為新職缺", name, len(jobs), len(new_jobs))
 
     recommended = []
     for i, job in enumerate(new_jobs, 1):
-        log.info("評估中 (%d/%d): %s - %s", i, len(new_jobs), job["platform"], job["title"])
-        result = evaluate_job(resume_text, job["title"], job["description"])
+        log.info("[%s] 評估中 (%d/%d): %s - %s", name, i, len(new_jobs), job["platform"], job["title"])
+        result = evaluate_job(resume, job["title"], job["description"], profile.get("fallback_keywords"),
+                              profile.get("level", "junior"))
         if result.get("error"):
             continue  # 完全失敗:不記錄為已看過,下次再試
         job["score"], job["reason"] = result["score"], result["reason"]
         if not result.get("fallback"):  # 備援評分的職缺下次再用 AI 重評
-            seen.add(job_key(job))
-        if job["score"] >= SCORE_THRESHOLD:
+            seen.add(f"{name}|{job_key(job)}")
+        if job["score"] >= threshold:
             recommended.append(job)
-    save_seen(SEEN_FILE, seen)
 
     if recommended:
-        log.info("共 %d 筆符合條件,發送通知", len(recommended))
-        send_discord_notification(recommended)
+        log.info("[%s] 共 %d 筆符合條件,發送通知", name, len(recommended))
+        send_discord_notification(recommended, label=name,
+                                  webhook_env=profile.get("webhook_env", "DISCORD_WEBHOOK_URL"))
     else:
-        log.info("今日沒有分數達 %d 的新推薦職缺。", SCORE_THRESHOLD)
+        log.info("[%s] 沒有分數達 %d 的新推薦職缺。", name, threshold)
+
+
+def main():
+    setup_logging()
+    seen = load_seen(SEEN_FILE)
+    try:
+        for profile in load_profiles():
+            run_profile(profile, seen)
+            save_seen(SEEN_FILE, seen)  # 每個檔案跑完就存,中途中斷不會全部重來
+    finally:
+        save_seen(SEEN_FILE, seen)
 
 
 if __name__ == "__main__":

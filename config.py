@@ -11,7 +11,7 @@ def _int(name, default):
         return default
 
 
-KEYWORDS = [k.strip() for k in os.getenv("JOB_KEYWORDS", "AI Engineer,Python,軟體工程師").split(",") if k.strip()]
+PROFILES_FILE = os.getenv("PROFILES_FILE", "profiles.json")
 LIMIT_PER_SOURCE = _int("JOB_LIMIT", 10)
 SCORE_THRESHOLD = _int("SCORE_THRESHOLD", 75)
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")

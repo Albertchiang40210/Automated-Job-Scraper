@@ -1,0 +1,38 @@
+[
+  {
+    "name": "AI應用工程師",
+    "resume": "resume_summary.txt",
+    "level": "junior",
+    "keywords": [
+      "AI應用工程師",
+      "AI Engineer",
+      "Python",
+      "軟體工程師"
+    ],
+    "fallback_keywords": [
+      "python",
+      "ai",
+      "machine learning",
+      "deep learning",
+      "llm"
+    ]
+  },
+  {
+    "name": "行政",
+    "resume": "resume_admin.txt",
+    "level": "senior",
+    "keywords": [
+      "行政人員",
+      "行政專員",
+      "資深行政",
+      "總務"
+    ],
+    "fallback_keywords": [
+      "行政",
+      "文書",
+      "總務",
+      "庶務",
+      "office"
+    ]
+  }
+]

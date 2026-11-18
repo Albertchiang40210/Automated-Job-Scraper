@@ -21,22 +21,46 @@ def _throttle():
     _last_call = time.monotonic()
 
 
-def fallback_score(job_description: str) -> dict:
-    """API 無法使用時的關鍵字備援評分(使用單字邊界,避免 'email' 命中 'ai')。"""
+def fallback_score(job_description: str, keywords=None, level="junior") -> dict:
+    """API 無法使用時的關鍵字備援評分。
+
+    keywords: 命中任一個就加分;英文字詞使用單字邊界(避免 'email' 命中 'ai')。
+    level: "junior" 偏好初階/無經驗職缺;"senior" 偏好有經驗/資深職缺。
+    """
     desc = job_description.lower()
     score, reason = 60, "API 降級模式:未發現關鍵技能。"
-    if re.search(r"\b(python|ai|machine learning|deep learning)\b", desc):
+    hit = any(
+        (re.search(rf"\b{re.escape(k.lower())}\b", desc) if k.isascii() else k in desc)
+        for k in (keywords or [])
+    )
+    if hit:
         score += 20
-        reason = "API 降級模式:發現 Python/AI 等關鍵字,初步判定符合。"
-    if re.search(r"\bjunior\b|助理|實習", desc):
-        score += 15
-        reason += " 適合初階/實習等級。"
-    elif re.search(r"\bsenior\b|資深", desc):
-        score -= 10
+        reason = "API 降級模式:發現相關關鍵字,初步判定符合。"
+    junior = re.search(r"\bjunior\b|助理|實習|儲備|無經驗|不拘經驗", desc)
+    senior = re.search(r"\bsenior\b|資深|主管|經理|\blead\b", desc)
+    if level == "senior":
+        if senior:
+            score += 15
+            reason += " 符合資深/主管等級。"
+        elif junior:
+            score -= 10
+    else:
+        if junior:
+            score += 15
+            reason += " 適合初階/實習等級。"
+        elif senior:
+            score -= 10
     score = min(score, 100)
     if score >= 90:
         reason = "[關鍵字精準命中] " + reason
     return {"score": score, "reason": reason, "fallback": True}
+
+
+def _fallback(description, keywords, level="junior"):
+    # 沒有設定備援關鍵字的檔案不使用備援評分(避免用不相干的規則亂打分)
+    if not keywords:
+        return {"score": 0, "reason": "API 無法使用", "error": True}
+    return fallback_score(description, keywords, level)
 
 
 def parse_response(text: str) -> dict:
@@ -46,7 +70,8 @@ def parse_response(text: str) -> dict:
     return {"score": max(0, min(100, int(data["score"]))), "reason": str(data.get("reason", "無"))}
 
 
-def evaluate_job(resume_text: str, job_title: str, job_description: str) -> dict:
+def evaluate_job(resume_text: str, job_title: str, job_description: str,
+                 fallback_keywords=None, level="junior") -> dict:
     """回傳 {"score", "reason"};備援評分含 "fallback": True,完全無法評估含 "error": True。"""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -76,7 +101,7 @@ def evaluate_job(resume_text: str, job_title: str, job_description: str) -> dict
             resp = requests.post(url, headers=headers, json=body, timeout=30)
         except requests.RequestException as e:
             log.error("Gemini 連線失敗: %s", type(e).__name__)
-            return fallback_score(job_description)
+            return _fallback(job_description, fallback_keywords, level)
 
         if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2:
             backoff = 30 * (2 ** attempt)
@@ -89,11 +114,11 @@ def evaluate_job(resume_text: str, job_title: str, job_description: str) -> dict
             return {"score": 0, "reason": f"Gemini 設定錯誤 {resp.status_code}", "error": True}
         if resp.status_code != 200:
             log.error("Gemini 請求失敗,狀態碼 %s: %s", resp.status_code, resp.text[:300])
-            return fallback_score(job_description)
+            return _fallback(job_description, fallback_keywords, level)
         try:
             text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
             return parse_response(text)
         except (KeyError, IndexError, ValueError, TypeError) as e:
             log.error("Gemini 回覆解析失敗: %s", e)
-            return fallback_score(job_description)
-    return fallback_score(job_description)
+            return _fallback(job_description, fallback_keywords, level)
+    return _fallback(job_description, fallback_keywords, level)
