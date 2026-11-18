@@ -59,6 +59,7 @@ def run_profile(profile, seen):
         if result.get("error"):
             continue  # 完全失敗:不記錄為已看過,下次再試
         job["score"], job["reason"] = result["score"], result["reason"]
+        log.info("[%s] 分數 %3d | %s | %s", name, job["score"], job["title"], job["reason"][:80])
         if not result.get("fallback"):  # 備援評分的職缺下次再用 AI 重評
             seen.add(f"{name}|{job_key(job)}")
         if job["score"] >= threshold:
