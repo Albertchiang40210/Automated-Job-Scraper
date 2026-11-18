@@ -44,7 +44,7 @@ def fallback_score(job_description: str, keywords=None, level="junior") -> dict:
             reason += " 符合資深/主管等級。"
         elif junior:
             score -= 10
-    else:
+    elif level == "junior":
         if junior:
             score += 15
             reason += " 適合初階/實習等級。"

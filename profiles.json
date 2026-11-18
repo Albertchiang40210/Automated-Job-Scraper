@@ -20,12 +20,12 @@
   {
     "name": "行政",
     "resume": "resume_admin.txt",
-    "level": "senior",
+    "level": "any",
     "keywords": [
       "行政人員",
-      "行政專員",
-      "資深行政",
-      "總務"
+      "總務專員",
+      "營運專員",
+      "行政助理"
     ],
     "fallback_keywords": [
       "行政",
